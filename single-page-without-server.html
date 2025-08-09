@@ -1,0 +1,487 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Kokoro TTS — Single File (No Server v5, Worker→Direct Fallback)</title>
+  <style>
+    :root {
+      color-scheme: dark;
+    }
+
+    html,
+    body {
+      margin: 0;
+      padding: 0;
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica Neue, Arial;
+      background: #0f172a;
+      color: #e5e7eb
+    }
+
+    .wrap {
+      max-width: 960px;
+      margin: 0 auto;
+      padding: 24px
+    }
+
+    .title {
+      font-size: 32px;
+      font-weight: 800;
+      margin: 8px 0 4px
+    }
+
+    .sub {
+      color: #cbd5e1;
+      margin: 0 0 16px
+    }
+
+    .card {
+      background: rgba(30, 41, 59, .6);
+      border: 1px solid #334155;
+      border-radius: 14px;
+      padding: 16px
+    }
+
+    textarea,
+    select,
+    button,
+    input {
+      font: inherit
+    }
+
+    textarea {
+      width: 100%;
+      min-height: 110px;
+      max-height: 280px;
+      resize: vertical;
+      color: #e5e7eb;
+      background: rgba(15, 23, 42, .6);
+      border: 2px solid #334155;
+      border-radius: 12px;
+      padding: 10px
+    }
+
+    select {
+      width: 100%;
+      color: #e5e7eb;
+      background: rgba(15, 23, 42, .6);
+      border: 2px solid #334155;
+      border-radius: 12px;
+      padding: 10px;
+      margin-top: 10px
+    }
+
+    button.primary {
+      padding: 10px 18px;
+      border-radius: 12px;
+      border: none;
+      color: #fff;
+      background: linear-gradient(180deg, #2563eb, #7c3aed);
+      cursor: pointer
+    }
+
+    button.primary[disabled] {
+      opacity: .6;
+      cursor: not-allowed
+    }
+
+    button.ghost {
+      padding: 10px 14px;
+      border-radius: 12px;
+      border: 1px solid #334155;
+      background: transparent;
+      color: #e5e7eb;
+      margin-left: 8px;
+      cursor: pointer
+    }
+
+    .results {
+      margin-top: 18px;
+      display: grid;
+      gap: 12px
+    }
+
+    .result {
+      position: relative;
+      background: rgba(30, 41, 59, .7);
+      border: 1px solid #334155;
+      border-radius: 12px;
+      padding: 12px
+    }
+
+    .badge {
+      position: absolute;
+      top: 8px;
+      right: 12px;
+      font-size: 12px;
+      color: #cbd5e1
+    }
+
+    .error {
+      background: rgba(239, 68, 68, .15);
+      border: 1px solid rgba(239, 68, 68, .4);
+      color: #fecaca;
+      border-radius: 10px;
+      padding: 10px;
+      margin: 12px 0;
+      display: none
+    }
+
+    .ok {
+      background: rgba(34, 197, 94, .15);
+      border: 1px solid rgba(34, 197, 94, .35);
+      color: #bbf7d0;
+      border-radius: 10px;
+      padding: 8px;
+      margin: 10px 0;
+      display: none
+    }
+
+    .overlay {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      background: rgba(2, 6, 23, .88);
+      backdrop-filter: blur(4px);
+      z-index: 50
+    }
+
+    .spinner {
+      width: 220px;
+      height: 220px;
+      border-radius: 50%;
+      background: #2c74b3;
+      box-shadow: inset 0 0 50px rgba(0, 0, 0, .5);
+      border: 4px solid #fff;
+      position: relative
+    }
+
+    .spinner::before,
+    .spinner::after {
+      content: "";
+      position: absolute;
+      width: 200%;
+      height: 200%;
+      top: 0;
+      left: 50%;
+      transform: translate(-50%, -75%);
+    }
+
+    .spinner::before {
+      border-radius: 45%;
+      background: rgba(255, 255, 255, 1);
+      animation: spin1 5s linear infinite
+    }
+
+    .spinner::after {
+      border-radius: 40%;
+      background: rgba(255, 255, 255, .5);
+      animation: spin1 10s linear infinite
+    }
+
+    @keyframes spin1 {
+      0% {
+        transform: translate(-50%, -75%) rotate(0)
+      }
+
+      100% {
+        transform: translate(-50%, -75%) rotate(360deg)
+      }
+    }
+
+    details {
+      margin-top: 18px
+    }
+
+    pre {
+      white-space: pre-wrap
+    }
+
+    .muted {
+      color: #94a3b8
+    }
+
+    a {
+      color: #93c5fd
+    }
+
+    .kv {
+      display: inline-block;
+      min-width: 110px;
+      color: #94a3b8
+    }
+  </style>
+</head>
+
+<body>
+  <div class="wrap">
+    <div>
+      <div class="title">Kokoro Text‑to‑Speech</div>
+      <div class="sub">Open this file directly (no server). If Worker import fails or stalls, it will auto‑fallback to a
+        direct (main‑thread) loader.</div>
+    </div>
+
+    <div id="ok" class="ok">Running in <code>file://</code> mode.</div>
+    <div id="error" class="error"></div>
+
+    <div class="card">
+      <div><span class="kv">Mode:</span><span id="mode" class="muted">boot</span></div>
+      <div><span class="kv">Device:</span><span id="d-device" class="muted">?</span></div>
+      <div><span class="kv">Status:</span><span id="d-status" class="muted">boot</span></div>
+      <hr style="border:0; border-top:1px solid #334155; margin:10px 0" />
+      <label for="text" class="muted">Text</label>
+      <textarea id="text">Life is like a box of chocolates. You never know what you're gonna get.</textarea>
+      <label for="voice" class="muted">Voice</label>
+      <select id="voice">
+        <option>Loading voices…</option>
+      </select>
+      <div style="margin-top:10px; display:flex; align-items:center; gap:8px; flex-wrap:wrap">
+        <button id="btn" class="primary">Generate</button>
+        <button id="sample" class="ghost">Load sample</button>
+        <button id="retry" class="ghost" title="Reinitialize the loader">Reinit</button>
+      </div>
+      <div id="hint" class="muted" style="margin-top:8px; font-size: 13px"></div>
+    </div>
+
+    <div id="results" class="results"></div>
+
+    <details>
+      <summary>Diagnostics</summary>
+      <div style="margin-top:8px">
+        <div>Last error:</div>
+        <pre id="d-error" class="muted">–</pre>
+        <div>Recent messages:</div>
+        <pre id="d-log" class="muted" style="max-height: 260px; overflow:auto"></pre>
+      </div>
+    </details>
+  </div>
+
+  <div id="overlay" class="overlay">
+    <div class="spinner"></div>
+    <p id="overlay-text" style="margin:16px 0 4px; font-size:20px">Loading…</p>
+    <p class="muted" style="font-size:13px">First run needs internet to fetch the model. Works without a server.</p>
+  </div>
+
+  <script type="module">
+    // ---------- Utilities & DOM ----------
+    const $ = (sel) => document.querySelector(sel);
+    const el = {
+      ok: $('#ok'), error: $('#error'), text: $('#text'), voice: $('#voice'), btn: $('#btn'), sample: $('#sample'), retry: $('#retry'), results: $('#results'),
+      overlay: $('#overlay'), overlayText: $('#overlay-text'), hint: $('#hint'),
+      mode: $('#mode'), dDevice: $('#d-device'), dStatus: $('#d-status'), dError: $('#d-error'), dLog: $('#d-log')
+    };
+    const pushLog = (m) => { console.log(m); el.dLog.textContent = [String(m), el.dLog.textContent].filter(Boolean).slice(0, 1000).join('\n'); };
+    const setStatus = (s) => { el.dStatus.textContent = s };
+    const setMode = (m) => { el.mode.textContent = m };
+    const showError = (msg) => { el.error.textContent = msg; el.error.style.display = 'block'; el.dError.textContent = msg; };
+    const hideError = () => { el.error.style.display = 'none'; el.dError.textContent = '–'; };
+    if (location.protocol === 'file:') { el.ok.style.display = 'block'; el.hint.textContent = 'File mode: single‑thread WASM, no COEP needed. If it stalls, it will auto‑fallback to direct mode.'; }
+
+    // ---------- Shared helpers ----------
+    const CDN_KOKORO_LIST = [
+      'https://cdn.jsdelivr.net/npm/kokoro-js@1.2.1/+esm',
+      'https://cdn.jsdelivr.net/npm/kokoro-js@1/+esm',
+      'https://esm.sh/kokoro-js@1.2.1',
+      'https://unpkg.com/kokoro-js@1.2.1/dist/index.mjs'
+    ];
+    async function importKokoro() {
+      for (const u of CDN_KOKORO_LIST) {
+        try { pushLog('Trying import: ' + u); const mod = await import(u); if (mod?.KokoroTTS) return mod; }
+        catch (e) { pushLog('Import failed @ ' + u + ': ' + (e?.message || e)); }
+      }
+      throw new Error('Failed to import kokoro-js from CDNs');
+    }
+    async function tuneTransformersEnv() {
+      try {
+        const x = await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers@3/+esm');
+        if (x?.env?.backends?.onnx?.wasm) { x.env.backends.onnx.wasm.numThreads = 1; x.env.backends.onnx.wasm.simd = true; }
+        if (x?.env) { x.env.allowRemoteModels = true; }
+        pushLog('Transformers env: single-thread WASM enabled.');
+      } catch (e) { pushLog('Transformers env tuning failed: ' + (e?.message || e)); }
+    }
+    function withTimeout(promise, ms, label = 'operation') {
+      return new Promise((resolve, reject) => {
+        const t = setTimeout(() => reject(new Error(label + ' timed out after ' + ms + ' ms')), ms);
+        promise.then(v => { clearTimeout(t); resolve(v); }, e => { clearTimeout(t); reject(e); });
+      });
+    }
+
+    // ---------- Global TTS (for direct mode) ----------
+    let TTS = null; // when set, we are in direct mode
+
+    // ---------- Worker path with watchdog ----------
+    let worker = null; let workerReady = false; let watchdog = null; let deviceSeen = '?';
+    function startWorker() {
+      setMode('worker'); setStatus('loading'); hideError(); el.overlay.style.display = 'flex';
+      const workerURL = URL.createObjectURL(new Blob([`
+        const post = (o)=>self.postMessage(o);
+        const log=(m)=>post({status:'log',message:String(m)});
+        self.onunhandledrejection = (e)=>post({status:'error',error:(e?.reason?.message||String(e?.reason||e))});
+
+        async function importKokoro(){
+          const urls=[
+            'https://cdn.jsdelivr.net/npm/kokoro-js@1.2.1/+esm',
+            'https://cdn.jsdelivr.net/npm/kokoro-js@1/+esm',
+            'https://esm.sh/kokoro-js@1.2.1',
+            'https://unpkg.com/kokoro-js@1.2.1/dist/index.mjs']
+          for(const u of urls){ try{ log('Trying import: '+u); const m=await import(u); if(m?.KokoroTTS) return m } catch(e){ log('Import failed @ '+u+': '+(e?.message||e)) } }
+          throw new Error('Failed to import kokoro-js from CDNs');
+        }
+        async function tune(){
+          try{ const x=await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers@3/+esm');
+            if(x?.env?.backends?.onnx?.wasm){ x.env.backends.onnx.wasm.numThreads=1; x.env.backends.onnx.wasm.simd=true }
+            if(x?.env){ x.env.allowRemoteModels=true }
+            log('Transformers env tuned');
+          }catch(e){ log('Transformers env tuning failed: '+(e?.message||e)) }
+        }
+        async function detectWebGPU(){ try{ const ad=await (navigator.gpu?.requestAdapter?.()); return !!ad } catch { return false } }
+        function withTimeout(p,ms,label='operation'){ return new Promise((res,rej)=>{ const t=setTimeout(()=>rej(new Error(label+' timed out after '+ms+' ms')),ms); p.then(v=>{clearTimeout(t);res(v)},e=>{clearTimeout(t);rej(e)}) }) }
+
+        (async()=>{
+          const hasGPU=await detectWebGPU(); post({status:'device',device:hasGPU?'webgpu':'wasm'});
+          post({status:'progress',message:'Loading libraries…'});
+          await tune();
+          let KokoroTTS; try{ ({KokoroTTS}=await importKokoro()) }catch(e){ post({status:'error',error:e?.message||String(e)}); return }
+          const modelIds=['onnx-community/Kokoro-82M-v1.0-ONNX','onnx-community/Kokoro-82M-ONNX'];
+          let tts=null,lastErr=null,picked=null;
+          for(const id of modelIds){ post({status:'progress',message:'Downloading model: '+id});
+            try{ tts=await withTimeout(KokoroTTS.from_pretrained(id,{device:'wasm',dtype:'q8'}),90000,'Model load'); picked=id; break }
+            catch(e){ lastErr=e; log('Load failed for '+id+': '+(e?.message||e)) }
+          }
+          if(!tts){ post({status:'error',error:'Model load failed. '+(lastErr?.message||lastErr||'')}); return }
+          const voices=(typeof tts.list_voices==='function')?tts.list_voices():(tts.voices||{});
+          post({status:'ready',voices,device:tts.device||'wasm',model:picked});
+          self.addEventListener('message', async (e)=>{
+            const {text,voice}=e.data||{}; try{
+              post({status:'progress',message:'Generating audio…'});
+              const audio=await withTimeout(tts.generate(text,{voice}),45000,'TTS');
+              const blob=audio.toBlob();
+              post({status:'complete',audio:URL.createObjectURL(blob),text});
+            }catch(err){ post({status:'error',error:err?.message||String(err)}) }
+          })
+        })();
+      `], { type: 'text/javascript' }));
+
+      try { worker = new Worker(workerURL, { type: 'module' }); } catch (e) {
+        pushLog('Worker start failed: ' + (e?.message || e));
+        switchToDirect('Worker creation failed');
+        return;
+      }
+
+      workerReady = false; deviceSeen = '?';
+
+      worker.addEventListener('message', (e) => {
+        const msg = e.data || {}; pushLog('worker: ' + JSON.stringify(msg));
+        if (msg.status === 'device') {
+          el.dDevice.textContent = msg.device || '?'; deviceSeen = msg.device || '?'; setStatus('loading'); el.overlayText.textContent = `Loading model (device="${msg.device}") …`;
+        } else if (msg.status === 'progress') {
+          el.overlayText.textContent = msg.message || 'Working…';
+        } else if (msg.status === 'ready') {
+          workerReady = true; setStatus('ready'); el.overlay.style.display = 'none'; hideError();
+          populateVoices(msg.voices);
+        } else if (msg.status === 'error') {
+          showError(msg.error || 'Unknown error');
+        } else if (msg.status === 'complete') {
+          onAudio(msg.text, msg.audio);
+        }
+      });
+
+      worker.addEventListener('error', (e) => {
+        showError('Worker error: ' + (e.message || e));
+        switchToDirect('Worker error');
+      });
+
+      // Watchdog: if not ready in 15s, fallback
+      clearTimeout(watchdog);
+      watchdog = setTimeout(() => {
+        if (!workerReady) {
+          pushLog('Watchdog: worker not ready in time, falling back');
+          switchToDirect('Worker timeout');
+        }
+      }, 15000);
+    }
+
+    function stopWorker() { try { worker?.terminate(); } catch { } worker = null; clearTimeout(watchdog); }
+
+    // ---------- Direct mode (main thread) ----------
+    async function startDirect(reason = 'fallback') {
+      setMode('direct'); setStatus('loading'); el.overlay.style.display = 'flex'; el.overlayText.textContent = 'Loading libraries…';
+      try {
+        await tuneTransformersEnv();
+        const { KokoroTTS } = await importKokoro();
+        const modelIds = ['onnx-community/Kokoro-82M-v1.0-ONNX', 'onnx-community/Kokoro-82M-ONNX'];
+        let lastErr = null; for (const id of modelIds) {
+          el.overlayText.textContent = 'Downloading model: ' + id;
+          try { TTS = await withTimeout(KokoroTTS.from_pretrained(id, { device: 'wasm', dtype: 'q8' }), 120000, 'Model load'); break; }
+          catch (e) { lastErr = e; pushLog('Direct load failed for ' + id + ': ' + (e?.message || e)); }
+        }
+        if (!TTS) throw new Error('Model load failed. ' + (lastErr?.message || lastErr || ''));
+        el.overlay.style.display = 'none'; setStatus('ready'); hideError(); populateVoices((typeof TTS.list_voices === 'function') ? TTS.list_voices() : (TTS.voices || {}));
+      } catch (e) {
+        showError('Direct mode failed: ' + (e?.message || e)); setStatus('error');
+      }
+    }
+
+    function switchToDirect(reason) { stopWorker(); startDirect(reason); }
+
+    // ---------- UI logic ----------
+    function populateVoices(v) {
+      el.voice.innerHTML = '';
+      const entries = Array.isArray(v) ? v.map((x, i) => [x.id || x.name || `v${i}`, x]) : Object.entries(v || {});
+      if (entries.length === 0) el.voice.innerHTML = '<option value="af_heart">af_heart</option>';
+      else {
+        for (const [id, info] of entries) {
+          const opt = document.createElement('option');
+          opt.value = id; const lang = (info && info.language) ? (info.language === 'en-us' ? 'American' : 'British') : 'Voice';
+          const gender = (info && info.gender) ? info.gender : ''; opt.textContent = `${info?.name || id} (${lang}${gender ? (' ' + gender) : ''})`;
+          el.voice.appendChild(opt);
+        }
+        const pref = Array.from(el.voice.options).find(o => o.value === 'af_heart'); if (pref) el.voice.value = 'af_heart';
+      }
+    }
+
+    function onAudio(text, url) {
+      const div = document.createElement('div'); div.className = 'result';
+      const idx = document.createElement('span'); idx.className = 'badge'; idx.textContent = '#' + (el.results.children.length + 1);
+      const p = document.createElement('p'); p.textContent = text; p.style.margin = '0 0 8px';
+      const audio = document.createElement('audio'); audio.controls = true; audio.src = url; audio.style.width = '100%';
+      div.appendChild(idx); div.appendChild(p); div.appendChild(audio); el.results.prepend(div);
+    }
+
+    async function generateNow() {
+      const text = (el.text.value || '').trim(); if (!text) return;
+      el.btn.disabled = true; setStatus('running');
+      try {
+        if (TTS) { // direct
+          el.overlayText.textContent = 'Generating audio…'; el.overlay.style.display = 'flex';
+          const audio = await withTimeout(TTS.generate(text, { voice: el.voice.value }), 60000, 'TTS');
+          const blob = audio.toBlob(); onAudio(text, URL.createObjectURL(blob)); el.overlay.style.display = 'none'; setStatus('ready');
+        } else if (worker) { // worker
+          worker.postMessage({ text, voice: el.voice.value });
+        } else {
+          showError('No engine available. Click Reinit.'); setStatus('error');
+        }
+      } catch (e) {
+        showError(e?.message || String(e)); setStatus('error');
+      } finally {
+        el.btn.disabled = false;
+      }
+    }
+
+    // buttons
+    el.btn.addEventListener('click', (e) => { e.preventDefault(); generateNow(); });
+    el.sample.addEventListener('click', (e) => { e.preventDefault(); el.text.value = "Hello! This is Kokoro speaking from a single HTML file — running fully in your browser."; });
+    el.retry.addEventListener('click', (e) => { e.preventDefault(); stopWorker(); TTS = null; startWorker(); });
+
+    // kick off
+    setMode('boot'); setStatus('boot'); el.overlay.style.display = 'flex';
+    // Prefer worker (if it hangs, watchdog will fallback to direct)
+    startWorker();
+  </script>
+</body>
+
+</html>
